@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Test outputs — regenerate with `python backend/tests/run_all.py`
+backend/tests/results/*.log
+backend/tests/results/*.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Sample photographs (~132 MB) — NOT tracked in git.
+# These are the benchmark input set. Keep them in shared storage
+# (Drive / object storage) rather than the repo, and drop them into
+# samples1/ and samples2/ locally to re-run the benchmarks.
+samples1/
+samples2/
