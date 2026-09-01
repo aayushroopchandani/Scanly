@@ -1,0 +1,6 @@
+# Barcode / OCR benchmark suite
+zxing-cpp==2.3.0           # barcode decoder (the recommended one)
+opencv-python-headless     # only for cv2.barcode, the comparison baseline
+rapidocr-onnxruntime       # OCR: PP-OCRv4 models on onnxruntime, CPU-only
+pillow
+numpy
