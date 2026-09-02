@@ -347,27 +347,72 @@ story += [Paragraph(
 
 story += [P("Test 5 &mdash; expiry date OCR", "h1")]
 story += [P(
-    "RapidOCR (PP-OCRv4 on onnxruntime) was run with no preprocessing, with a "
-    "rotation retry when no date-like text was found, and the output normalised to "
-    "DD/MM/YY for comparison against ground truth. "
-    "<font face='Courier'>test_05_ocr_expiry.py</font>"
+    "RapidOCR (PP-OCR models on onnxruntime) was benchmarked against the 44 images "
+    "carrying a ground-truth expiry date. Scoring asks only whether the correct date "
+    "appears anywhere in the raw OCR output, in any form the pack might print it "
+    "&mdash; no parsing, no normalisation &mdash; so the number measures the engine "
+    "rather than a regex. Full suite in "
+    "<font face='Courier'>tests/ocr_expiry/</font>."
 )]
-story += [table([
-    ["Metric", "Result"],
-    ["Average time per image (CPU, no GPU)", "~0.6 s"],
-    ["Correct date extracted, where ground truth exists", "20/44"],
-    ["Additional cases where OCR read the date but the parser missed it", "2"],
-], [110 * mm, 24 * mm], align_right=(1,))]
+story += [section(P("Input resolution", "h2"), table([
+    ["Input", "Correct", "Rate", "Avg time"],
+    ["1000 px", "31/44", "70%", "418 ms"],
+    ["1600 px", "29/44", "66%", "596 ms"],
+    ["2200 px", "28/44", "64%", "810 ms"],
+    ["3000 px", "28/44", "64%", "1083 ms"],
+    ["Native (4032 px)", "24/44", "55%", "1711 ms"],
+], [52 * mm, 26 * mm, 22 * mm, 30 * mm], align_right=(1, 2, 3), highlight=(1,)))]
 story += [P(
-    "<b>This is the weakest link and needs more work.</b> The OCR engine itself "
-    "performs well; the losses are split between the date parser and the packs "
-    "themselves. Four date formats appear across the sample set &mdash; "
-    "<font face='Courier'>04/12/2026</font>, <font face='Courier'>18/06/2025</font>, "
-    "<font face='Courier'>20250110</font> (YYYYMMDD) and "
-    "<font face='Courier'>January 2027</font> (month name plus year) &mdash; and the "
-    "parser must handle all four. Sideways text needs the rotation retry: upright OCR "
-    "returned <font face='Courier'>EPDATE210/2027</font> where the 90&#176; rotation "
-    "returned <font face='Courier'>EAPDATE23./10/2027</font>."
+    "As with the barcode, the lowest resolution wins and native is both worst and "
+    "four times slower. Downscaling suppresses packaging texture and gloss that "
+    "otherwise generate spurious text detections."
+)]
+
+story += [section(P("Preprocessing and cropping", "h2"), table([
+    ["Strategy", "Correct", "Rate"],
+    ["Whole image @1000px (baseline)", "31/44", "70%"],
+    ["Whole image + unsharp mask", "33/44", "75%"],
+    ["Two-pass: OCR-located box, re-OCR", "31/44", "70%"],
+    ["Crop to hand-drawn date panel", "25/44", "57%"],
+    ["Crop to date panel, native resolution", "24/44", "55%"],
+    ["Adaptive threshold (binarise)", "19/44", "43%"],
+], [86 * mm, 26 * mm, 22 * mm], align_right=(1, 2), highlight=(2,)))]
+
+story += [callout(
+    "<b>Cropping to the expiry region makes OCR worse, not better.</b> Even with the "
+    "date panel located by hand on every image and each crop verified by eye, accuracy "
+    "fell from 31/44 to 25/44. Modern OCR is two-stage: a detector finds text regions "
+    "and a recogniser reads them, so the crop already happens inside the model. "
+    "Cropping to ~24% of the frame pushes the input outside the distribution the "
+    "detector was trained on &mdash; on sample 1 it found 56 text regions in the whole "
+    "photo but only 7 in the crop, missing the MFG and EXP lines entirely even though "
+    "nothing was clipped. Do not build a date-region detector: a perfect one would "
+    "still lose accuracy.", BAD)]
+
+story += [P(
+    "The same applies to classical preprocessing. Adaptive threshold &mdash; "
+    "recommended in the original architecture proposal &mdash; destroyed 12 of the 31 "
+    "images that worked untouched, and CLAHE lost 3. Both are correct advice for "
+    "Tesseract, which needs binarised input, and wrong for RapidOCR, whose models are "
+    "trained on natural colour photographs. Only mild sharpening helped: "
+    "<b>+2 images, none lost, no extra cost</b>."
+)]
+story += [P(
+    "<b>Recommended pipeline:</b> "
+    "<font face='Courier'>exif_transpose &#8594; resize 1000px &#8594; unsharp mask "
+    "&#8594; RapidOCR</font> &mdash; 33/44 in ~420&nbsp;ms, no cropping, no threshold."
+)]
+story += [P(
+    "<b>Measure the engine, not the regex.</b> A strict DD/MM/YYYY parser scores only "
+    "22/44 on the same OCR output that contains the correct date 31 times. Sample 39 "
+    "returns <font face='Courier'>EXP2028.JAN.21</font> &mdash; exactly right, but it "
+    "matches no conventional date pattern. Four formats appear across the packs "
+    "(<font face='Courier'>04/12/2026</font>, <font face='Courier'>20250110</font>, "
+    "<font face='Courier'>10/2027</font>, <font face='Courier'>January 2027</font>), "
+    "and sideways text needs a rotation retry: upright OCR returned "
+    "<font face='Courier'>EPDATE210/2027</font> where 90&#176; returned "
+    "<font face='Courier'>EAPDATE23./10/2027</font>. The date parser, not the OCR "
+    "engine, is now the weakest component."
 )]
 
 # --------------------------------------------------------------------------

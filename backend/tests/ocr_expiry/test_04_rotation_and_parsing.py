@@ -1,4 +1,4 @@
-"""Test 5 -- OCR for the expiry date (RapidOCR).
+"""OCR test 4 -- rotation retry, and raw OCR vs a strict date parser.
 
 Runs RapidOCR over each image with no preprocessing and pulls out any
 line that looks like a date or a date label. Where ground truth exists
@@ -16,7 +16,19 @@ Observations from the sample set:
   * Sideways text needs a rotation retry: upright OCR returned
     'EPDATE210/2027' where rot90 returned 'EAPDATE23./10/2027'.
 
-Run:  python test_05_ocr_expiry.py
+IMPORTANT distinction this test exists to make:
+
+    correct date present in the RAW OCR text : 31/44   (see test_03)
+    correct date extracted by a strict regex : 20/44
+
+The gap is the PARSER, not the engine. Sample 39 returns `EXP2028.JAN.21`
+-- exactly right -- but matches no DD/MM/YYYY rule. Do not judge OCR
+quality with a parser in the loop.
+
+Rotation retry earns its place on sideways packs: upright OCR returned
+`EPDATE210/2027` where the 90-degree rotation returned `EAPDATE23./10/2027`.
+
+Run:  python test_04_rotation_and_parsing.py
 """
 from __future__ import annotations
 
@@ -29,10 +41,11 @@ from PIL import Image, ImageOps
 
 from rapidocr_onnxruntime import RapidOCR
 
-from common import ensure_results_dir, rel_name, sample_files
-from ground_truth import EXPIRY_GROUND_TRUTH
+from metric import (EXPIRY_GROUND_TRUTH, ensure_results_dir,  # noqa: F401
+                    matches, texts_of)
+from common import rel_name, sample_files  # noqa: E402
 
-OCR_MAX_DIM = 1600
+OCR_MAX_DIM = 1000   # per test_01: 1000px scores best
 ROTATIONS = (0, 90, 180, 270)
 
 DATE_LABEL = re.compile(
@@ -84,6 +97,7 @@ def main():
         t0 = time.perf_counter()
         res, _ = ocr(np.array(im))
         lines = [t for _b, t, _c in (res or [])]
+        all_lines = list(lines)
         interesting = [t for t in lines
                        if DATE_LABEL.search(t) or DATE_VALUE.search(t)]
 
@@ -93,6 +107,7 @@ def main():
             for rot in ROTATIONS[1:]:
                 res, _ = ocr(np.array(im.rotate(rot, expand=True)))
                 lines = [t for _b, t, _c in (res or [])]
+                all_lines += lines
                 cand = [t for t in lines
                         if DATE_LABEL.search(t) or DATE_VALUE.search(t)]
                 if any(DATE_VALUE.search(t) for t in cand):
@@ -117,6 +132,7 @@ def main():
 
         rows.append(dict(name=name, rotation=used_rot, ms=dt, truth=truth,
                          extracted=sorted(found), lines=interesting,
+                         all_lines=all_lines,
                          verdict=verdict))
         rot_note = f" rot{used_rot}" if used_rot else ""
         print(f"\n### {name} ({dt:.0f}ms{rot_note}) -> {verdict}"
@@ -129,12 +145,16 @@ def main():
     matched = [r for r in scored if r["verdict"].startswith("MATCH")]
     print(f"\n=== expiry OCR over {n} images ===")
     print(f"avg {total_ms/n:.0f}ms per image")
-    print(f"exact/month-year match where ground truth exists: "
-          f"{len(matched)}/{len(scored)}")
+    # Score against EVERY OCR line, not just the date-ish ones -- otherwise
+    # the pre-filter silently discards correct reads and understates the engine.
+    raw = [r for r in scored if matches(r["truth"], r["all_lines"])]
+    print(f"strict-parser match  : {len(matched)}/{len(scored)}")
+    print(f"present in RAW text  : {len(raw)}/{len(scored)}   "
+          f"<- the engine's real score; the gap is the parser")
     print("Note: a 'not matched' here is often the pack itself -- several "
           "print only a manufacture date, or leave the field blank.")
 
-    out = ensure_results_dir() / "test_05_ocr_expiry.json"
+    out = ensure_results_dir() / "ocr_test_04_rotation_and_parsing.json"
     json.dump(rows, open(out, "w"), indent=2)
     print(f"\nwrote {out}")
 

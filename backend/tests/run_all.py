@@ -1,7 +1,10 @@
 """Run the whole benchmark suite and tee the output to results/.
 
-    python run_all.py            # all tests
-    python run_all.py 01 02      # only those
+    python run_all.py            # barcode tests + the expiry-OCR suite
+    python run_all.py 01 02      # only those barcode tests
+    python run_all.py ocr        # only the expiry-OCR suite
+
+The OCR suite is slow (~15 min on CPU); the barcode tests take seconds.
 """
 from __future__ import annotations
 
@@ -15,13 +18,18 @@ TESTS = [
     ("02", "test_02_resolution_and_crop.py", "resolution sweep + crop test"),
     ("03", "test_03_failure_recovery.py", "aggressive retry on failures"),
     ("04", "test_04_ocr_barcode_fallback.py", "OCR + checksum barcode fallback"),
-    ("05", "test_05_ocr_expiry.py", "expiry date OCR"),
 ]
+
+# The expiry-OCR work lives in its own suite with its own runner.
+OCR_SUITE = ("ocr", Path("ocr_expiry") / "run_ocr_tests.py",
+             "expiry-date OCR suite (resolution, preprocessing, cropping)")
 
 
 def main():
     wanted = sys.argv[1:]
     selected = [t for t in TESTS if not wanted or t[0] in wanted]
+    if not wanted or OCR_SUITE[0] in wanted:
+        selected.append(OCR_SUITE)
     (HERE / "results").mkdir(exist_ok=True)
     failed = []
 

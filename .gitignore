@@ -9,6 +9,9 @@ env/
 # Test outputs — regenerate with `python backend/tests/run_all.py`
 backend/tests/results/*.log
 backend/tests/results/*.json
+backend/tests/ocr_expiry/results/*.log
+backend/tests/ocr_expiry/results/*.json
+backend/tests/ocr_expiry/results/*.jpg
 
 # OS / editor
 .DS_Store
