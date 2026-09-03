@@ -55,6 +55,15 @@ This contradicts the original architecture proposal, which calls preprocessing
 deskew + adaptive threshold. That advice is correct for **Tesseract**, which
 needs binarised input. It is wrong for RapidOCR.
 
+## Pattern specification
+
+Before building the deterministic parser, read
+[`Expiry_Date_Pattern_Spec.pdf`](Expiry_Date_Pattern_Spec.pdf) — a reference
+catalogue of every date **value format** (V1–V9), **label word** (expiry / mfg /
+decoy / shelf-life / indirection), and **extraction pattern** (E1–E12) found in
+the raw OCR across all 58 samples, plus a per-image appendix that doubles as the
+parser's test fixture. Regenerate it with `python make_pattern_spec.py`.
+
 ## Setup
 
 Same dependencies as the parent suite:
