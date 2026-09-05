@@ -14,87 +14,114 @@ Backend it talks to: [`backend/app/scanner.py`](../backend/app/scanner.py) →
 | Mode | Purpose | Camera | Status |
 |---|---|---|---|
 | **Audit** | Identify a product on the shelf | Live barcode scan only | ⚠️ scope TBD — barcode + live camera is all that's confirmed |
-| **Expiry capture** | Backfill the missing expiry date | Still photo + live scan fallback | ✅ designed below |
+| **Expiry capture** | Backfill the missing expiry date | Still photo + live-scan rescue | ✅ designed below |
 
 Everything below describes **Expiry capture**.
 
 ---
 
-## 2. The core principle: slots, not labelled photos
+## 2. The core principle: two slots, no photo budget
 
 The instinct is to think "photo 1 = barcode, photo 2 = expiry." Don't. The
 employee should never have to declare what a photo is *for*, and the system
 should never have to guess.
 
-Instead the session has **two slots to fill**:
+The session has **two slots to fill**:
 
 ```
 NEED:   [ product_id ]      [ expiry_date ]
 ```
 
-Every photo is passed to `scan()` and whatever it yields drops into whichever
-slot is still empty. The UI simply asks for **what is still missing**.
+Every photo goes to `POST /scan` and whatever comes back drops into whichever
+slot is still empty. The UI only ever asks for **what is still missing**.
 
-This collapses the "which side was photographed?" problem entirely — and it
-means the same flow handles both the same-face and different-face cases
-without the employee choosing a path.
+Each slot has its own rescue when a photo does not fill it:
 
-**Budget: max 2 *useful* photos.** A photo that fills no slot is discarded and
-does **not** count against the budget — otherwise two blurry shots would lock
-someone out of a product they can plainly see.
+| Slot | If the photo does not supply it |
+|---|---|
+| `product_id` | **Live barcode scan** — instant, in-browser, near-100% |
+| `expiry_date` | **Take another photo** — usually of a different face |
 
----
+**There is no "max 2 photos" rule.** An earlier draft capped the session at
+two; it was dropped because the cap is a concept the employee has to learn,
+and it forces an awkward decision about whether a blurry shot burns a slot.
+The employee simply keeps going until both slots are full — bounded by the
+retry rules in §5, not by a counter.
 
 ## 3. The flow
 
 ```mermaid
 flowchart TD
-    A([📷 Photo 1<br/>guide: fit barcode AND date in frame]) --> B{scan}
-    B -->|barcode + expiry| DONE([✅ Confirm card])
-    B -->|expiry only| LS[📡 Live-scan the barcode]
-    B -->|barcode only| P2([📷 Photo 2<br/>other side, for the date])
-    B -->|neither| RETRY[🔄 Discard &amp; retake<br/>does not use the budget]
-    LS --> DONE
-    P2 --> C{scan}
-    C -->|expiry found| DONE
-    C -->|still nothing| MAN([✍️ Manual entry])
-    RETRY --> A
-    DONE --> SAVE[(Save batch expiry)]
+    A([📷 One photo<br/>guide: fit barcode AND date in frame]) --> B{scan}
+    B --> BC{product_id<br/>filled?}
+    BC -->|yes| EX
+    BC -->|no| LS[📡 Live-scan the barcode<br/>in-browser, instant]
+    LS --> EX{expiry<br/>confidence?}
+    EX -->|high / medium| CARD([📝 Editable date card<br/>pre-filled, employee confirms])
+    EX -->|none| MSG[/Pattern-driven message<br/>retake · other side · type it/]
+    MSG --> A
+    MSG -->|after 2-3 tries| MAN([✍️ Manual entry])
+    CARD --> SAVE[(Save batch expiry)]
+    MAN --> SAVE
 ```
 
-### Why photo-first, not scan-first
+### Why one photo first, not a scan first
 
 A single photo makes a product/date mismatch **physically impossible** —
 same frame, same pack. Leading with a live barcode scan would turn that
 guarantee into a risk for the majority case that never needed it.
 
-Live scanning is therefore demoted to a **rescue**: used only when the photo
-already failed to find a barcode, which is the single largest failure bucket.
+Live scanning is therefore a **rescue**, used only when the photo failed to
+find a barcode — which is the single largest failure bucket.
 
 ### Step 1 is where the accuracy is
 
-Measured on the sample set: **only 36% of photos yielded both**, yet ~70% of
-packs carry both on one face. The gap is pure framing — 22 of 58 photos had
-no barcode in frame at all, and 5 more had it sliced by the frame edge.
+Measured on the sample set: **only 36% of photos yielded both**, yet ~60-70%
+of packs carry both on one face. The gap is pure framing — 22 of 58 photos
+had no barcode in frame at all, and 5 more had it sliced by the frame edge.
 
-> **The capture guide on step 1 is the highest-value element in the whole UI.**
-> Show both targets, and hint live when a barcode is detected in view. This
-> recovers more accuracy than any model change available to us.
-
----
+> **The capture guide on the first screen is the highest-value element in the
+> whole UI.** Show both targets, and hint live when a barcode is detected in
+> view. This recovers more accuracy than any model change available to us.
 
 ## 4. Screens
 
-### 4.1 Capture (step 1)
+### 4.1 Capture
 
-- Full-bleed camera
-- **Framing guide**: two soft outlines — "barcode" and "date panel" — with copy
-  like *"Fit the barcode and the date in one shot"*
-- Live hint when a barcode is detected in frame (green tick) so they know
-  before they press the shutter
-- Shutter button; no mode toggles
+**Full-bleed camera with the info as an overlay** — not a split screen.
 
-### 4.2 Multi-barcode picker
+Framing is the single biggest lever on accuracy, so the viewfinder gets the
+whole screen. Everything the employee needs to see is overlay-shaped anyway:
+
+| Overlay | Where |
+|---|---|
+| What is still needed | small chip, top |
+| Framing guide — "barcode" + "date panel" outlines | over the preview |
+| ✓ badge when a barcode is detected in view | corner |
+| Previous photo, once a retake is in progress | thumbnail, corner |
+
+Copy on first open: *"Fit the barcode and the date in one shot."*
+
+**Keep one camera stream alive for the whole session.** Do not tear down and
+re-open `getUserMedia()` between the photo and the live scan — restarting
+costs about a second and flickers. Hold the stream; only change what you do
+with the frames.
+
+### 4.2 Live barcode scan (rescue)
+
+Shown only when a photo did not yield a barcode. Runs **entirely in the
+browser** (`BarcodeDetector` API, or ZXing-JS as fallback) — no upload, no
+server round trip, retries every frame until a code decodes with a valid
+check digit.
+
+> **Optional upgrade worth considering:** run barcode detection continuously
+> in the background while the employee is *aiming*, rather than only as a
+> rescue. The code then gets captured passively during framing they were
+> doing anyway, the "no barcode" failure largely disappears before it
+> happens, and there is no mismatch risk because the scan and the photo are
+> the same moment on the same pack.
+
+### 4.3 Multi-barcode picker
 
 Sample 42 in the test set contains **six** valid EAN-13 barcodes (a multipack
 carton); sample 38 has two. Never silently take the first.
@@ -103,77 +130,74 @@ When `barcode.retail_count > 1`:
 
 - Show the captured photo
 - Draw a tap-target box over each detected barcode using **`box_norm`**
-  (normalised 0–1, so it scales to any display size)
+  (normalised 0-1, so it scales to any display size)
 - Label each with its decoded value
-- Employee taps the right one → that fills the `product_id` slot
+- Employee taps the right one, filling the `product_id` slot
 
 ```
 values[].box_norm = { x, y, w, h }   // fractions of image width/height
 values[].corners  = [[x,y], ...]     // exact quad if the code is rotated
 ```
 
-### 4.3 Confirm card
+### 4.4 The date card
 
-The one screen the employee sees on the happy path.
+**Always editable — at every confidence level.** The parser currently returns
+zero wrong dates, but that is measured across 44 images. Trust is earned in
+the pilot, not assumed on day one, and a wrong expiry marks an entire batch
+wrong. So the date is always a field the employee can correct, never a value
+they can only accept.
 
-- Product name (resolved from `product_id`)
-- **Expiry date, large**
-- ✏️ **Edit** — tap to correct the date inline
-- Big accept button → ✅ green success, done
+One component, three states:
 
-Treatment depends on `expiry.confidence`:
-
-| Confidence | Measured | Treatment |
+| Confidence | Measured | Card |
 |---|---:|---|
-| `high` | 22/44 | Date large + **green**. One tap to accept. |
-| `medium` | 10/44 | Date + **amber** and the reason shown. Accept is a deliberate confirm, not a reflex tap — these are derived or heuristic reads. |
-| `none` | 12/44 | Skip the card. Go straight to manual entry. |
+| `high` | 22/44 | Date pre-filled, **green**, editable. Confirm. |
+| `medium` | 10/44 | Date pre-filled, **amber**, editable, **with `expiry.reason` shown** ("derived from manufacture + 24 months"). |
+| `none` | 12/44 | **Empty field.** Offer a retake first (§5), then let them type. |
 
-Same tap count in the common case; friction only where the machine is unsure.
+> The amber state matters. If `medium` looks identical to `high` it will be
+> reflex-tapped, and the entire value of the confidence signal is lost.
 
-### 4.4 Second photo
+Also on the card: the product identifier, so the employee can see they are
+confirming the right thing. Until the Phase 2 catalogue lookup exists this is
+the **raw barcode number** rather than a product name.
 
-- Appears **only when actually needed** — never show two empty slots up front,
-  which would imply two photos are expected when ~70% finish in one
-- Photo 1 shown as a **small thumbnail top-right** once photo 2 is being taken
-- Show the **resolved product name** on screen while photographing the second
-  side, so a wrong pack in hand is visually obvious
+## 5. When the date is not found, say *what to do differently*
 
----
+"Try again" is wrong most of the time. Re-photographing a pack that says
+"see below" can never work, and the employee loses trust in the tool fast.
+The parser reports **which pattern** it hit — use it.
 
-## 5. Failure messages come from the parser, not a generic retry
-
-The parser reports *which* pattern it hit. Use it — telling someone to
-re-photograph a pack that says "see below" wastes their time and burns trust.
-
-| `expiry.pattern` | What it means | UI message |
+| `expiry.pattern` | Retaking the same face… | UI message |
 |---|---|---|
-| `E9_indirection` | pack says "as printed on pack" | **"Check another side"** — retaking this face is useless |
-| `E4_mfg_only_shelf_life_unknown` | only a manufacture date; shelf life not on pack | **"Enter the date"** — the info isn't printed here |
-| `E10_use_within_of_opening` | "use within 3 months of opening" | **No fixed expiry exists** — skip, don't make them hunt |
-| `E11_missing_or_blank` | nothing readable | **"Try again"** — likely a bad photo |
+| `E11_missing_or_blank` | might help — likely a poor photo | **"Try again"** |
+| `E9_indirection` | useless — pack says "as printed on pack" | **"Check another side"** |
+| `E4_mfg_only_shelf_life_unknown` | useless — the date is not printed | **"Enter the date"** |
+| `E10_use_within_of_opening` | useless — no fixed expiry exists | **"Skip this one"** |
 
-Only `E11` deserves a retake prompt.
+On the scored set the 12 no-answer cases are **10 × `E11`** (a retake is
+worth trying) and **2 × `E4`** (a retake is pointless). So "try again" is
+right most of the time — but without the other messages, roughly 1 in 6
+employees hits a dead end with no way forward.
 
-**Retry cap:** after 2–3 failed attempts, always offer manual entry. Never trap
-someone in a retake loop.
-
----
+**Escape hatch.** Dropping the two-photo cap also dropped the natural
+stopping point, so this replaces it: after **2-3 failed attempts, always
+offer manual entry.** Never let anyone loop on a pack whose date genuinely
+cannot be read.
 
 ## 6. Mismatch safeguards
 
-A mismatch (barcode of product A, expiry of product B) is impossible in the
-one-photo case and unavoidable in principle whenever two photos are needed.
-Three cheap defences:
+A mismatch — barcode of product A, expiry of product B — is impossible while
+everything comes from one frame, and becomes possible the moment a retake is
+involved. Three cheap defences:
 
-1. **Show the product name during step 2.** Once the barcode resolves, display
-   it while they photograph the other side.
-2. **Cross-check for free.** If the second image happens to contain a barcode
-   too, compare it to the first. Different → hard flag, don't save.
-3. **Keep both images on the record**, so a suspicious batch expiry can be
-   audited later without a second warehouse pass.
-
----
+1. **Cross-check every retake, free.** If a later photo also contains a
+   barcode, compare it with the one already held. Different → flag and do not
+   save. This catches the "wrong pack picked up" error directly.
+2. **Show the identifier on screen** during a retake, so the employee can see
+   which product the session is already bound to.
+3. **Prefer the passive-scan model** (§4.2): if the barcode is read from the
+   same frames as the photo, the mismatch window never opens at all.
 
 ## 7. What the frontend needs from the API
 
@@ -271,8 +295,21 @@ These are cheap now and expensive to retrofit:
 
 | Decision | Why |
 |---|---|
-| Photo first, live scan as fallback | One photo makes mismatch impossible; live scan is the rescue when no barcode is in frame |
-| Slots, not labelled photos | The employee never declares intent; the system merges whatever each photo yields |
-| Failed photos don't consume the budget | Otherwise two bad shots lock out a visible product |
-| Multi-barcode always asks | Six valid codes appeared in one real sample |
-| `medium` confidence never auto-saves | A wrong expiry marks a whole batch wrong; the parser returns 0 wrong dates today and that must not change |
+| **One photo first**, live scan as rescue | One frame makes a mismatch impossible; the scan is the rescue when no barcode is in view |
+| **Full-bleed camera**, info as overlay | Framing is the biggest lever on accuracy; a shrunken viewfinder works against the one thing that matters most |
+| **Slots, not labelled photos** | The employee never declares intent; the system merges whatever each photo yields |
+| **No photo budget** | A cap is a concept to learn and forces a bad call on whether a blurry shot burns a slot; the retry rules in §5 bound the loop instead |
+| **The date is always editable** | The parser returns 0 wrong dates today, but on 44 images. A wrong expiry marks a whole batch wrong, so trust is earned in the pilot |
+| **`medium` must look different from `high`** | Identical styling gets reflex-tapped and the confidence signal is wasted |
+| **Multi-barcode always asks** | Six valid codes appeared in one real sample |
+| **Retry messages come from `expiry.pattern`** | A generic "try again" is a dead end for packs whose date is not on that face at all |
+
+---
+
+## 11. Changelog
+
+**v2 — flow simplified.** Removed the "max 2 photos" budget: the retake *is*
+the second photo, so the cap was a concept without a job. Barcode and expiry
+now have independent rescues (live scan / retake). The date card became
+editable at every confidence level. Camera confirmed as full-bleed with
+overlay rather than split-screen.
