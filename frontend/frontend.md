@@ -114,12 +114,26 @@ browser** (`BarcodeDetector` API, or ZXing-JS as fallback) — no upload, no
 server round trip, retries every frame until a code decodes with a valid
 check digit.
 
-> **Optional upgrade worth considering:** run barcode detection continuously
-> in the background while the employee is *aiming*, rather than only as a
-> rescue. The code then gets captured passively during framing they were
-> doing anyway, the "no barcode" failure largely disappears before it
-> happens, and there is no mismatch risk because the scan and the photo are
-> the same moment on the same pack.
+**The scan is a deliberate, aimed act** — the employee points at one specific
+barcode and watches it register. That visibility is what makes it safe.
+
+> **Rejected: continuous background scanning.** An earlier draft proposed
+> reading barcodes from every frame while the employee aims, so the code
+> would be captured passively. It was dropped because it silently breaks the
+> guarantee the whole flow is built on:
+>
+> - **Silent mismatch.** A neighbouring pack's barcode on a full shelf can be
+>   captured with nobody looking. The employee then photographs the right
+>   pack and the record is wrong, with no signal anywhere that it happened.
+> - **"Take the last scanned" has no justification** — it means "whatever
+>   drifted past most recently", which is often the shelf neighbour swept
+>   over while lifting the pack to the camera.
+> - **It defeats the multi-barcode picker** (§4.3). Six valid codes appear in
+>   one real sample; continuous scanning would lock one in silently and never
+>   ask.
+>
+> This is the same flaw that ruled out scan-first in §3 — decoupling the
+> barcode from the photo moment — just harder to notice.
 
 ### 4.3 Multi-barcode picker
 
@@ -302,6 +316,7 @@ These are cheap now and expensive to retrofit:
 | **The date is always editable** | The parser returns 0 wrong dates today, but on 44 images. A wrong expiry marks a whole batch wrong, so trust is earned in the pilot |
 | **`medium` must look different from `high`** | Identical styling gets reflex-tapped and the confidence signal is wasted |
 | **Multi-barcode always asks** | Six valid codes appeared in one real sample |
+| **No continuous background scanning** | Captures a neighbour's barcode silently, has no principled "which one" rule, and bypasses the picker (§4.2) |
 | **Retry messages come from `expiry.pattern`** | A generic "try again" is a dead end for packs whose date is not on that face at all |
 
 ---
@@ -312,4 +327,5 @@ These are cheap now and expensive to retrofit:
 the second photo, so the cap was a concept without a job. Barcode and expiry
 now have independent rescues (live scan / retake). The date card became
 editable at every confidence level. Camera confirmed as full-bleed with
-overlay rather than split-screen.
+overlay rather than split-screen. Continuous background barcode scanning was
+considered and rejected — see §4.2.
