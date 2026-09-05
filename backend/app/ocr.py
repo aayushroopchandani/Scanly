@@ -32,6 +32,11 @@ def get_engine():
     return _engine
 
 
+def is_loaded() -> bool:
+    """Whether the ONNX models are already resident in this process."""
+    return _engine is not None
+
+
 def warmup() -> float:
     """Load the models ahead of the first real request. Returns seconds."""
     started = time.perf_counter()

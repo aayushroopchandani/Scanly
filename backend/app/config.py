@@ -25,3 +25,12 @@ OCR_MAX_DIM = 1000
 UNSHARP_AMOUNT = 1.6
 UNSHARP_SIGMA = 2.0
 UNSHARP_WEIGHT = -0.6
+
+# --- API ---------------------------------------------------------------
+# A phone photo is 3-4 MB. The frontend should downscale to 1600px before
+# uploading (the backend resizes to that anyway), but the cap protects a
+# worker from a malformed or hostile upload.
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+
+# Dev default. Lock this down to the PWA origin before any real deployment.
+CORS_ORIGINS = ["*"]

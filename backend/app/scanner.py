@@ -27,10 +27,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def scan(image_path: str | Path) -> dict:
-    """Extract barcodes and raw text from one photograph."""
-    started = time.perf_counter()
+    """Extract barcodes, text and expiry from one photograph on disk."""
+    return _run(imaging.load(image_path))
 
-    src = imaging.load(image_path)
+
+def scan_bytes(data: bytes, name: str = "upload") -> dict:
+    """Same pipeline, for an uploaded image held in memory."""
+    return _run(imaging.load_bytes(data, name))
+
+
+def _run(src: imaging.Source) -> dict:
+    started = time.perf_counter()
 
     # Barcode first: it is ~20x faster, so a hard failure surfaces early.
     gray, bscale = imaging.for_barcode(src)

@@ -6,3 +6,6 @@ opencv-python-headless        # unsharp mask
 pillow                        # image load + EXIF orientation
 numpy
 python-dateutil               # month arithmetic for derived expiry
+fastapi                       # HTTP layer
+uvicorn[standard]             # ASGI server
+python-multipart              # multipart/form-data uploads

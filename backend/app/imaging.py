@@ -6,6 +6,7 @@ that one decode.
 """
 from __future__ import annotations
 
+import io
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,22 @@ def load(image_path: str | Path) -> Source:
         raise FileNotFoundError(f"No such image: {path}")
     im = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
     return Source(image=im, width=im.width, height=im.height, path=path)
+
+
+def load_bytes(data: bytes, name: str = "upload") -> Source:
+    """Same as load(), for an image that arrived over the wire.
+
+    Uploads never touch the disk: Pillow reads straight from memory. EXIF
+    orientation still has to be applied here, exactly as for a file --
+    phone uploads carry the same orientation tag.
+    """
+    if not data:
+        raise ValueError("empty upload")
+    try:
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    except Exception as exc:
+        raise ValueError(f"not a readable image: {exc}") from exc
+    return Source(image=im, width=im.width, height=im.height, path=Path(name))
 
 
 def _fit(im: Image.Image, max_dim: int) -> tuple[Image.Image, float]:
