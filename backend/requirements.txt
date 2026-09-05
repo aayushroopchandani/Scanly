@@ -1,0 +1,7 @@
+# Scanly backend runtime
+# Versions are the ones the benchmarks were measured on.
+zxing-cpp==3.1.1              # barcode decoding
+rapidocr-onnxruntime==1.2.3   # OCR: PP-OCR models on onnxruntime, CPU-only
+opencv-python-headless        # unsharp mask
+pillow                        # image load + EXIF orientation
+numpy

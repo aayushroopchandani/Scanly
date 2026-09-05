@@ -199,7 +199,7 @@ story += [P(
 )]
 story += [P(
     "<b>Environment.</b> Apple Silicon macOS, CPU only, no GPU. Python 3.14, "
-    "zxing-cpp 2.3.0, OpenCV 5.0, RapidOCR (PP-OCRv4 ONNX). Timings are "
+    "zxing-cpp 3.1.1, OpenCV 5.0, RapidOCR (PP-OCR ONNX). Timings are "
     "single-threaded wall clock, decode call only, excluding image load."
 )]
 story += [P(
