@@ -1,7 +1,7 @@
 """scan(image_path) -> dict
 
-Slice 1 of the capture pipeline: one photograph in, barcode(s) and raw
-OCR text out. No date parsing, no database, no HTTP.
+One photograph in; barcode(s), raw OCR text, and a normalised expiry
+date out. No database, no HTTP.
 
 The two extractors run SEQUENTIALLY and independently. Threading them
 would save ~20ms of a ~420ms request (the OCR dominates) while adding
@@ -21,6 +21,7 @@ from pathlib import Path
 from . import barcode as barcode_mod
 from . import imaging
 from . import ocr as ocr_mod
+from .expiry import parse as parse_expiry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,6 +39,10 @@ def scan(image_path: str | Path) -> dict:
     rgb, _oscale = imaging.for_ocr(src)
     ocr = ocr_mod.extract(rgb)
 
+    # Deterministic rules only -- same text always gives the same date,
+    # and the result names the pattern that produced it.
+    expiry = parse_expiry(ocr["lines"])
+
     try:
         shown = str(src.path.relative_to(REPO_ROOT))
     except ValueError:
@@ -48,6 +53,7 @@ def scan(image_path: str | Path) -> dict:
         "image_size": {"w": src.width, "h": src.height},
         "barcode": barcode,
         "ocr": ocr,
+        "expiry": expiry.as_dict(),
         "ms_total": round((time.perf_counter() - started) * 1000, 1),
     }
 
